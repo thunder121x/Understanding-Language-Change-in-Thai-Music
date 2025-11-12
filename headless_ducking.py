@@ -10,48 +10,64 @@ from scraper.dataclass import ThaiMusicRecord  # <-- your dataclass
 
 ATTEMPT_STEP = 8
 
-def extract_year(text: str) -> str | None:
+def extract_year(text: str, is_heavy_search: bool = False) -> str | None:
     """
     Extracts the most likely release year from text based on priority:
     1. 'เพลงโดย ... พ.ศ.' pattern (artist and Buddhist year)
-    2. 'พ.ศ.' Buddhist year → convert to Christian year (YYYY)
-    3. 'release' keyword followed by 20 chars → find first 4-digit year
-    4. Thai-style date (e.g. '12 สิงหาคม 2566') → extract year
-    Returns: year as string (e.g. "2023") or None if not found.
+    2. 'ทาง ... พ.ศ.' pattern (platform and Buddhist year)
+    3. 'release' or 'วางจำหน่าย' keyword followed by 20 chars → find 4-digit year
+    4. (Heavy search only) Buddhist year or Thai-style date patterns
     """
 
-    # --- เพลงโดย ... พ.ศ. ---- (highest priority)
+    digits_map = str.maketrans("๐๑๒๓๔๕๖๗๘๙", "0123456789")
+
+    # --- 1️⃣ เพลงโดย ... พ.ศ. (artist reference) ---
     artist_year_pattern = re.search(
-        r"เพลงโดย\s+.+?[·•‧\-\–—|]\s*พ\.?\s*ศ\.?\s*([0-9๐-๙]{4})", text
+        r"เพลงโดย\s+.+?[·•‧\-\–—|]\s*พ\.?\s*ศ\.?\s*([0-9๐-๙]{4})",
+        text,
     )
     if artist_year_pattern:
         raw_year = artist_year_pattern.group(1)
-        digits_map = str.maketrans("๐๑๒๓๔๕๖๗๘๙", "0123456789")
         year_be = int(raw_year.translate(digits_map))
         return str(year_be - 543)
 
-    # --- Buddhist year ---
-    buddhist_year = re.search(r"พ\.ศ\.?\s*(\d{4})", text)
-    if buddhist_year:
-        year = int(buddhist_year.group(1)) - 543
-        return str(year)
+    # --- 2️⃣ ทาง ... พ.ศ. (e.g., 'ทาง Apple Music พ.ศ. 2538') ---
+    platform_year_pattern = re.search(
+        r"ทาง\s+[A-Za-zก-๙\s]+?\s*พ\.?\s*ศ\.?\s*([0-9๐-๙]{4})",
+        text,
+    )
+    if platform_year_pattern:
+        raw_year = platform_year_pattern.group(1)
+        year_be = int(raw_year.translate(digits_map))
+        return str(year_be - 543)
 
-    # --- RELEASE: extract following 20 chars and filter digits ---
+    # --- 3️⃣ RELEASE / วางจำหน่าย keyword ---
     release_pos = re.search(r"release", text, re.IGNORECASE)
-    if release_pos:
-        start = release_pos.end()
+    release_pos_th = re.search(r"วางจำหน่าย", text, re.IGNORECASE)
+    apple_release = re.search(r"Apple Music", text, re.IGNORECASE)
+    if release_pos or release_pos_th or apple_release:
+        release = release_pos or release_pos_th or apple_release
+        start = release.end()
         snippet = text[start:start + 20]
         digits = re.findall(r"\d{4}", snippet)
         if digits:
             return digits[0]
 
-    # --- Thai-style date (e.g. "12 สิงหาคม 2566") ---
-    thai_date = re.search(r"\d{1,2}\s*[ก-๙]+\s*(\d{4})", text)
-    if thai_date:
-        year = int(thai_date.group(1))
-        if year >= 2500:
-            year -= 543
-        return str(year)
+    # --- 4️⃣ (optional) Heavy fallback search ---
+    if is_heavy_search:
+        # Buddhist year only
+        buddhist_year = re.search(r"พ\.ศ\.?\s*(\d{4})", text)
+        if buddhist_year:
+            year = int(buddhist_year.group(1)) - 543
+            return str(year)
+
+        # Thai-style date (e.g. "12 สิงหาคม 2566")
+        thai_date = re.search(r"\d{1,2}\s*[ก-๙]+\s*(\d{4})", text)
+        if thai_date:
+            year = int(thai_date.group(1))
+            if year >= 2500:
+                year -= 543
+            return str(year)
 
     return None
 
@@ -163,6 +179,8 @@ def update_csv_with_scraped_years(input_csv: str, output_csv: str):
             # --- Step 1: Try multiple search sources ---
             rel_year = scrape_song_metadata(song_title, artist, "https://www.google.com/search?q=")
             if not rel_year:
+                rel_year = scrape_song_metadata(song_title, artist, "https://www.google.com/search?q=", "apple")
+            if not rel_year:
                 rel_year = scrape_song_metadata(song_title, artist, "https://duckduckgo.com/?q=", "เพลง+อัลบั้ม+ปี")
             if not rel_year:
                 rel_year = scrape_song_metadata(song_title, artist, "https://duckduckgo.com/?q=", "release")
@@ -190,6 +208,6 @@ def update_csv_with_scraped_years(input_csv: str, output_csv: str):
 # ---------------------------------------------------------------------
 if __name__ == "__main__":
     update_csv_with_scraped_years(
-        input_csv="thai_songs_52.csv",
-        output_csv="thai_songs_updated_52.csv",
+        input_csv="thai_songs_partial.csv",
+        output_csv="thai_songs_partial_.csv",
     )
