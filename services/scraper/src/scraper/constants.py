@@ -1,6 +1,7 @@
 from pathlib import Path
 
 ROOT_PATH = Path(__file__).resolve().parent.parent.parent
+ATTEMPT_STEP = 8
 
 # Directory structure for organized exports
 OUTPUT_DIR = Path(ROOT_PATH, "output")
