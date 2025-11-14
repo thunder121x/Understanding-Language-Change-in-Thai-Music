@@ -1,5 +1,8 @@
+require("dotenv").config();
+
 async function searchSong(query) {
   const token = process.env.SPOTIFY_TOKEN;
+
   if (!token) {
     throw new Error("SPOTIFY_TOKEN environment variable is not set.");
   }
