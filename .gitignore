@@ -47,3 +47,27 @@ htmlcov/
 # Temporary
 *.tmp
 *.bak
+
+# Environment
+.env
+.env.*
+!.env.example
+!.env.*.example
+
+# Node / Next.js
+node_modules/
+.next/
+.next.cache/
+.turbo/
+.vercel/
+out/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Coverage / Reports
+coverage/
+
+# Project data artifacts
+dev/*.csv
