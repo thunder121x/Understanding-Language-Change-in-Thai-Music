@@ -10,9 +10,97 @@ type Prediction = {
   overallConfidence: number;
 };
 
-const ERA_OPTIONS = ["1990–1999", "2000–2009", "2010–2019", "2020–2025"];
-const GENRE_OPTIONS = ["Pop", "Rock", "Indie", "Hip-hop"];
+type ApiPrediction = Record<string, unknown>;
+
 const MODEL_NOTE = "ไม่รู้จะเขียนอะไรดี ทำๆไว้ก่อน";
+const DEFAULT_PREDICTION: Prediction = {
+  era: "Unknown era",
+  genre: "Unknown genre",
+  eraConfidence: 0,
+  genreConfidence: 0,
+  overallConfidence: 0
+};
+
+function clampConfidence(value: number): number {
+  return Math.max(0, Math.min(100, Math.round(value)));
+}
+
+function pickString(
+  data: ApiPrediction,
+  candidates: string[],
+  fallback: string
+): string {
+  for (const key of candidates) {
+    const value = data[key];
+    if (typeof value === "string" && value.trim().length > 0) {
+      return value;
+    }
+  }
+  return fallback;
+}
+
+function pickConfidence(
+  data: ApiPrediction,
+  candidates: string[],
+  fallback: number
+): number {
+  for (const key of candidates) {
+    const value = data[key];
+    if (typeof value === "number" && Number.isFinite(value)) {
+      return clampConfidence(value);
+    }
+    if (typeof value === "string" && value.trim().length > 0) {
+      const parsed = Number.parseFloat(value);
+      if (Number.isFinite(parsed)) {
+        return clampConfidence(parsed);
+      }
+    }
+  }
+  return fallback;
+}
+
+function mapApiPrediction(raw: ApiPrediction | null): Prediction {
+  if (!raw || typeof raw !== "object") {
+    return DEFAULT_PREDICTION;
+  }
+
+  const data = raw as ApiPrediction;
+
+  const era = pickString(
+    data,
+    ["era", "predicted_era", "predictedEra", "era_label"],
+    DEFAULT_PREDICTION.era
+  );
+  const genre = pickString(
+    data,
+    ["genre", "predicted_genre", "predictedGenre", "genre_label"],
+    DEFAULT_PREDICTION.genre
+  );
+
+  const eraConfidence = pickConfidence(
+    data,
+    ["era_confidence", "eraConfidence", "era_score"],
+    DEFAULT_PREDICTION.eraConfidence
+  );
+  const genreConfidence = pickConfidence(
+    data,
+    ["genre_confidence", "genreConfidence", "genre_score"],
+    DEFAULT_PREDICTION.genreConfidence
+  );
+  const overallConfidence = pickConfidence(
+    data,
+    ["overall_confidence", "overallConfidence", "confidence"],
+    clampConfidence((eraConfidence + genreConfidence) / 2)
+  );
+
+  return {
+    era,
+    genre,
+    eraConfidence,
+    genreConfidence,
+    overallConfidence
+  };
+}
 
 export default function Home() {
   const [lyrics, setLyrics] = useState("");
@@ -22,36 +110,47 @@ export default function Home() {
 
   const lyricLength = useMemo(() => lyrics.trim().length, [lyrics]);
 
-  function randomPrediction(): Prediction {
-    const eraConfidence = Math.round(Math.random() * 25);
-    const genreConfidence = Math.round(Math.random() * 30);
-    const overallConfidence = Math.round(
-      (eraConfidence + genreConfidence) / 2
-    );
-
-    return {
-      era: ERA_OPTIONS[Math.floor(Math.random() * ERA_OPTIONS.length)],
-      genre: GENRE_OPTIONS[Math.floor(Math.random() * GENRE_OPTIONS.length)],
-      eraConfidence,
-      genreConfidence,
-      overallConfidence
-    };
-  }
-
   async function handleClassify() {
     if (!lyrics.trim()) {
-      setError("Please write on lyrics first.");
-      alert("Please write on lyrics first.");
+      const message = "Please write on lyrics first.";
+      setError(message);
+      alert(message);
+      return;
+    }
+
+    if (!process.env.NEXT_PUBLIC_API_URL) {
+      setError("NEXT_PUBLIC_API_URL is not configured.");
       return;
     }
 
     setLoading(true);
     setError(null);
+    setPrediction(null);
 
-    // Simulate a lightweight async action so the UI feels responsive.
-    await new Promise((resolve) => setTimeout(resolve, 400));
-    setPrediction(randomPrediction());
-    setLoading(false);
+    try {
+      const response = await fetch(
+        `${process.env.NEXT_PUBLIC_API_URL}/predict`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text: lyrics })
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error(`Request failed with status ${response.status}`);
+      }
+
+      const payload = (await response.json()) as ApiPrediction;
+      setPrediction(mapApiPrediction(payload));
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : "Unknown error occurred";
+      setError(message);
+      setPrediction(null);
+    } finally {
+      setLoading(false);
+    }
   }
 
   return (
@@ -157,8 +256,8 @@ export default function Home() {
               </div>
 
               <div className="muted" style={{ marginTop: 10, fontSize: 11 }}>
-                This is placeholder output for design. Later you&apos;ll replace
-                it with real predictions from your ML API.
+                Predictions shown here are provided by the running FastAPI
+                backend.
               </div>
             </div>
           )}
