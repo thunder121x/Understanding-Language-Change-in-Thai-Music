@@ -8,7 +8,7 @@ from datetime import datetime
 # Import your dataclass
 from scraper.dataclass import ThaiMusicRecord
 from scraper.config import SCRAPE_DATE
-from scraper.constants import DATETIME_FORMAT
+from scraper.constants import DATETIME_FORMAT, OUTPUT_DIR
 
 BASE_URL = "https://xn--72c9bva0i.meemodel.com"
 SCRAPER_MODULE = "meemodel_scraper.py"
@@ -19,8 +19,8 @@ LANGUAGE_VARIANT = "Central Thai text"
 
 all_songs = []
 
-# Step 1: Collect song URLs from paginated listing (~40 songs)
-for page in range(1, 51):
+# Step 1: Collect song URLs from paginated listing (~10 songs)
+for page in range(4, 5):
     url = f"{BASE_URL}/เนื้อเพลง?page={page}"
     try:
         res = requests.get(url)
@@ -49,10 +49,10 @@ for page in range(1, 51):
     print(f"Fetched page {page}, total songs: {len(all_songs)}")
     time.sleep(0.5)  # avoid server block
 
-# Step 2: Scrape lyrics and metadata for first 40 songs
+# Step 2: Scrape lyrics and metadata for first 10 songs
 records = []
 
-for i, song in enumerate(all_songs[:40]):
+for i, song in enumerate(all_songs[:10]):
     try:
         res = requests.get(song["url"])
         soup = BeautifulSoup(res.text, "html.parser")
@@ -87,7 +87,7 @@ for i, song in enumerate(all_songs[:40]):
         records.append(record)
 
         if (i + 1) % 50 == 0:
-            print(f"Processed {i+1}/{len(all_songs[:40])} songs")
+            print(f"Processed {i+1}/{len(all_songs[:10])} songs")
 
         time.sleep(0.2)
     except Exception as e:
@@ -95,5 +95,7 @@ for i, song in enumerate(all_songs[:40]):
 
 # Step 3: Convert all records to a DataFrame and save CSV
 df = pd.DataFrame([r.to_dict() for r in records])
-df.to_csv("thai_songs_40.csv", index=False, encoding="utf-8-sig")
-print("Saved 40 songs successfully!")
+OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
+df.to_csv(OUTPUT_DIR / "thai_songs_10.csv", index=False, encoding="utf-8-sig")
+print("Saved 10 songs successfully!")

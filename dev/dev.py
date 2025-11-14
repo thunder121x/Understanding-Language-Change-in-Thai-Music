@@ -44,7 +44,7 @@ def scrape_song_metadata(song_title: str, artist: str) -> dict:
 
     with sync_playwright() as p:
         browser = p.chromium.launch(
-            headless=True,
+            headless=False,
             args=[
                 "--no-sandbox",
                 "--disable-setuid-sandbox",
@@ -128,6 +128,6 @@ def update_csv_with_scraped_years(input_csv: str, output_csv: str):
 # ---------------------------------------------------------------------
 if __name__ == "__main__":
     update_csv_with_scraped_years(
-        input_csv="thai_songs_40.csv",
+        input_csv="thai_songs_20.csv",
         output_csv="thai_songs_updated.csv",
     )
