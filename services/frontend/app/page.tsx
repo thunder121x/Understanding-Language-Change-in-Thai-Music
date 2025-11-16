@@ -11,6 +11,7 @@ type Prediction = {
 };
 
 type ApiPrediction = Record<string, unknown>;
+type ApiScores = Record<string, number>;
 
 const MODEL_NOTE = "ไม่รู้จะเขียนอะไรดี ทำๆไว้ก่อน";
 const DEFAULT_PREDICTION: Prediction = {
@@ -60,12 +61,7 @@ function pickConfidence(
 }
 
 function mapApiPrediction(raw: ApiPrediction | null): Prediction {
-  if (!raw || typeof raw !== "object") {
-    return DEFAULT_PREDICTION;
-  }
-
-  const data = raw as ApiPrediction;
-
+  const data = raw && typeof raw === "object" ? (raw as ApiPrediction) : {};
   const era = pickString(
     data,
     ["era", "predicted_era", "predictedEra", "era_label"],
@@ -123,26 +119,59 @@ export default function Home() {
       return;
     }
 
+    const baseUrl = process.env.NEXT_PUBLIC_API_URL.replace(/\/+$/, "");
     setLoading(true);
     setError(null);
     setPrediction(null);
 
     try {
-      const response = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL}/predict`,
-        {
+      const payload = JSON.stringify({ text: lyrics });
+
+      const [genreResponse, eraResponse] = await Promise.all([
+        fetch(`${baseUrl}/predict/genre`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ text: lyrics })
-        }
-      );
+          body: payload
+        }),
+        fetch(`${baseUrl}/predict/era`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: payload
+        })
+      ]);
 
-      if (!response.ok) {
-        throw new Error(`Request failed with status ${response.status}`);
+      if (!genreResponse.ok) {
+        throw new Error(
+          `Genre request failed with status ${genreResponse.status}`
+        );
+      }
+      if (!eraResponse.ok) {
+        throw new Error(`Era request failed with status ${eraResponse.status}`);
       }
 
-      const payload = (await response.json()) as ApiPrediction;
-      setPrediction(mapApiPrediction(payload));
+      const genreJson = (await genreResponse.json()) as ApiPrediction;
+      const eraJson = (await eraResponse.json()) as ApiPrediction;
+
+      const maxScore = (scores: unknown): number | null => {
+        if (!scores || typeof scores !== "object") return null;
+        const values = Object.values(scores as ApiScores).filter((v) =>
+          Number.isFinite(v)
+        ) as number[];
+        if (!values.length) return null;
+        return Math.max(...values);
+      };
+
+      const genreTop = maxScore(genreJson["scores"]);
+      const eraTop = maxScore(eraJson["scores"]);
+
+      const combined: ApiPrediction = {
+        predicted_genre: genreJson["predicted_genre"],
+        genre_confidence: genreTop ? genreTop * 100 : undefined,
+        predicted_era: eraJson["predicted_era"],
+        era_confidence: eraTop ? eraTop * 100 : undefined
+      };
+
+      setPrediction(mapApiPrediction(combined));
     } catch (err) {
       const message =
         err instanceof Error ? err.message : "Unknown error occurred";
