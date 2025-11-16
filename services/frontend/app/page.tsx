@@ -100,11 +100,63 @@ function mapApiPrediction(raw: ApiPrediction | null): Prediction {
 
 export default function Home() {
   const [lyrics, setLyrics] = useState("");
+  const [searchTitle, setSearchTitle] = useState("");
+  const [searchArtist, setSearchArtist] = useState("");
+  const [searching, setSearching] = useState(false);
+  const [searchMessage, setSearchMessage] = useState<string | null>(null);
   const [prediction, setPrediction] = useState<Prediction | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const lyricLength = useMemo(() => lyrics.trim().length, [lyrics]);
+
+  async function handleSearchLyrics() {
+    const trimmedTitle = searchTitle.trim();
+    const trimmedArtist = searchArtist.trim();
+
+    if (!trimmedTitle) {
+      const message = "Please enter a song title to search.";
+      setSearchMessage(message);
+      alert(message);
+      return;
+    }
+
+    if (!process.env.NEXT_PUBLIC_API_URL) {
+      setSearchMessage("NEXT_PUBLIC_API_URL is not configured.");
+      return;
+    }
+
+    const baseUrl = process.env.NEXT_PUBLIC_API_URL.replace(/\/+$/, "");
+    const params = new URLSearchParams({ title: trimmedTitle });
+    if (trimmedArtist) params.set("artist", trimmedArtist);
+
+    setSearching(true);
+    setSearchMessage(null);
+    setError(null);
+
+    try {
+      const response = await fetch(`${baseUrl}/api/search-lyrics?${params.toString()}`);
+      if (!response.ok) {
+        throw new Error(`Search request failed with status ${response.status}`);
+      }
+
+      const data = (await response.json()) as Record<string, unknown>;
+      const nextLyrics =
+        typeof data["lyrics"] === "string" && data["lyrics"].trim().length > 0
+          ? (data["lyrics"] as string)
+          : "No lyrics found.";
+
+      setLyrics(nextLyrics);
+      setPrediction(null);
+      setSearchMessage("Lyrics loaded from search result.");
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : "Unable to fetch lyrics right now.";
+      setSearchMessage(message);
+    } finally {
+      setSearching(false);
+    }
+  }
 
   async function handleClassify() {
     if (!lyrics.trim()) {
@@ -190,11 +242,84 @@ export default function Home() {
 
       <main>
         <section className="panel">
-          <h2 className="panel-title">Paste lyrics</h2>
+          <h2 className="panel-title">Search or paste lyrics</h2>
           <p className="panel-subtitle">
-            Add Song lyrics on the left, then classify to see the predicted era
-            and genre.
+            Search by song title (artist optional) to auto-fill the lyrics box,
+            or paste lyrics manually to classify era and genre.
           </p>
+
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+              gap: 12,
+              background: "#f9fafb",
+              border: "1px solid #e5e7eb",
+              borderRadius: 12,
+              padding: 12,
+              marginBottom: 12
+            }}
+          >
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              <label style={{ fontSize: 12, color: "#4b5563", fontWeight: 600 }}>
+                Song title *
+              </label>
+              <input
+                type="text"
+                placeholder="e.g., Shape of You"
+                value={searchTitle}
+                onChange={(event) => setSearchTitle(event.target.value)}
+                disabled={loading || searching}
+                style={{
+                  padding: "8px 10px",
+                  borderRadius: 8,
+                  border: "1px solid #d1d5db",
+                  background: "#ffffff"
+                }}
+              />
+            </div>
+
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              <label style={{ fontSize: 12, color: "#4b5563", fontWeight: 600 }}>
+                Artist (optional)
+              </label>
+              <input
+                type="text"
+                placeholder="e.g., Ed Sheeran"
+                value={searchArtist}
+                onChange={(event) => setSearchArtist(event.target.value)}
+                disabled={loading || searching}
+                style={{
+                  padding: "8px 10px",
+                  borderRadius: 8,
+                  border: "1px solid #d1d5db",
+                  background: "#ffffff"
+                }}
+              />
+            </div>
+
+            <div
+              style={{
+                display: "flex",
+                alignItems: "flex-end",
+                justifyContent: "flex-start"
+              }}
+            >
+              <button
+                className="btn btn-primary"
+                type="button"
+                onClick={handleSearchLyrics}
+                disabled={loading || searching}
+                style={{ width: "100%", justifyContent: "center" }}
+              >
+                {searching ? "Searching..." : "Search lyrics"}
+              </button>
+            </div>
+          </div>
+
+          <div className="status" style={{ marginBottom: 8 }}>
+            {searchMessage || "Use search to auto-fill lyrics, then classify."}
+          </div>
 
           <textarea
             id="lyricsInput"

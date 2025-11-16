@@ -1,10 +1,13 @@
-from pathlib import Path
 import logging
 import re
+import urllib.parse
+from pathlib import Path
 
 import joblib
+import requests
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from bs4 import BeautifulSoup
 from pydantic import BaseModel
 
 app = FastAPI(title="Thai Lyrics Era Classifier")
@@ -85,6 +88,66 @@ class PredictRequest(BaseModel):
     text: str
 
 
+def scrape_lyrics_lyricsfreak(song: str, artist: str | None = None) -> str | None:
+    """Scrape lyrics from lyricsfreak for a given song (artist optional)."""
+    query = f"{song} {artist}" if artist else song
+    search_url = (
+        "https://www.lyricsfreak.com/search.php?a=search&type=song&q="
+        + urllib.parse.quote(query)
+    )
+
+    try:
+        search_html = requests.get(
+            search_url,
+            timeout=10,
+            headers={"Referer": "https://www.lyricsfreak.com"},
+        ).text
+    except requests.RequestException as exc:
+        logging.warning("lyricsfreak search failed: %s", exc)
+        return None
+
+    soup = BeautifulSoup(search_html, "html.parser")
+    result_link = soup.select_one("a.song")
+    if not result_link:
+        return None
+
+    song_url = "https://www.lyricsfreak.com" + result_link["href"]
+    try:
+        song_html = requests.get(
+            song_url,
+            timeout=10,
+            headers={"Referer": "https://www.lyricsfreak.com"},
+        ).text
+    except requests.RequestException as exc:
+        logging.warning("lyricsfreak fetch failed: %s", exc)
+        return None
+
+    soup_song = BeautifulSoup(song_html, "html.parser")
+    lyrics_block = soup_song.select_one("div.lyrictxt")
+
+    return lyrics_block.get_text("\n").strip() if lyrics_block else None
+
+
+SCRAPERS = [
+    ("lyricsfreak", scrape_lyrics_lyricsfreak),
+]
+
+
+def scrape_lyrics(song_name: str, artist_name: str | None = None) -> str | None:
+    """Try available scrapers sequentially; return first lyrics found."""
+    logging.info("Searching lyrics for %s - %s", song_name, artist_name)
+    for site_name, scraper_fn in SCRAPERS:
+        logging.info("Trying %s ...", site_name)
+        lyrics = scraper_fn(song_name, artist_name)
+        if lyrics:
+            logging.info("Found lyrics on %s", site_name)
+            return lyrics
+        logging.info("Not found on %s", site_name)
+
+    logging.warning("Lyrics not found on any configured sites.")
+    return None
+
+
 @app.post("/predict/genre")
 def predict(payload: PredictRequest) -> dict:
     if not payload.text:
@@ -123,3 +186,18 @@ def predict_era(payload: PredictRequest) -> dict:
 
     predicted_era = max(probs, key=probs.get)
     return {"predicted_era": predicted_era, "scores": probs}
+
+
+@app.get("/api/search-lyrics")
+def search_lyrics(title: str, artist: str | None = None) -> dict:
+    """
+    Fetch lyrics by title (artist optional). Returns 404 if nothing is found.
+    """
+    if not title:
+        raise HTTPException(status_code=400, detail="Title is required for search.")
+
+    lyrics = scrape_lyrics(title, artist)
+    if not lyrics:
+        raise HTTPException(status_code=404, detail="Lyrics not found.")
+
+    return {"title": title, "artist": artist, "lyrics": lyrics}
